@@ -1,0 +1,28 @@
+# datos
+*.csv
+*.csv.gz
+noti/
+
+# warehouses
+warehouse/
+warehouse_data/
+
+# notebooks y scripts de exploración
+*.ipynb
+codigo.py
+
+# pdfs y archivos de clase
+*.pdf
+
+# LaTeX auxiliares
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+
+# misceláneos
+desconocidos*.txt
+__pycache__/
+*.pyc
+.DS_Store

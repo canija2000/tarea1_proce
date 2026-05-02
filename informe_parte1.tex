@@ -1,0 +1,332 @@
+\documentclass[11pt, letterpaper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds}
+
+% ── Estilo de código ──────────────────────────────────────────────────────────
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{gray!8},
+  frame=single,
+  rulecolor=\color{gray!40},
+  breaklines=true,
+  numbers=none,
+  keywordstyle=\color{blue!70!black},
+  commentstyle=\color{green!50!black},
+  stringstyle=\color{orange!80!black},
+}
+
+% ── Encabezado ────────────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{IIC 2440 --- Tarea 1}
+\lhead{Parte 1: Data Warehouse}
+\rfoot{\thepage}
+
+\titleformat{\section}{\large\bfseries}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\begin{document}
+
+\begin{center}
+  {\Large \textbf{Tarea 1 --- IIC 2440: Procesamiento de Datos Masivos}} \\[4pt]
+  {\large Parte 1: Data Warehouse y Pipeline ETL} \\[2pt]
+  {\small Pontificia Universidad Católica de Chile \quad --- \quad Primer Semestre 2026}
+\end{center}
+
+\vspace{0.5em}
+\hrule
+\vspace{1em}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Esquema Estrella}
+
+El warehouse sigue un esquema estrella con una tabla de hechos central
+(\texttt{fact\_news}) y tres tablas de dimensiones. Cada artículo en
+\texttt{fact\_news} reemplaza sus atributos categóricos por llaves foráneas
+hacia las dimensiones correspondientes, eliminando redundancia y facilitando
+consultas analíticas.
+
+\subsection{Tabla de hechos: \texttt{fact\_news}}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Columna} & \textbf{Tipo} & \textbf{Descripción} \\
+\midrule
+\texttt{article\_id}       & string  & Identificador único del artículo (hash) \\
+\texttt{date\_id}          & int32   & FK $\to$ \texttt{dim\_date} \\
+\texttt{source\_id}        & int32   & FK $\to$ \texttt{dim\_source} \\
+\texttt{region\_id}        & int32   & FK $\to$ \texttt{dim\_region} \\
+\texttt{title}             & string  & Título del artículo (encoding corregido) \\
+\texttt{body}              & string  & Cuerpo del artículo (encoding corregido) \\
+\texttt{title\_word\_count} & int32  & Cantidad de palabras en el título \\
+\texttt{body\_word\_count}  & int32  & Cantidad de palabras en el cuerpo \\
+\bottomrule
+\end{tabular}
+\caption{Esquema de \texttt{fact\_news}.}
+\end{table}
+
+La tabla está \textbf{particionada por año y mes} (\texttt{year=YYYY/month=MM}),
+siguiendo la convención Hive. Cada partición se almacena en un archivo Parquet
+independiente (\texttt{part-0.parquet}), lo que permite leer solo el rango de
+fechas necesario en consultas posteriores.
+
+\subsection{Tablas de dimensiones}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Tabla} & \textbf{Clave primaria} & \textbf{Atributos} \\
+\midrule
+\texttt{dim\_date}   & \texttt{date\_id}   & fecha, año, mes, día, día de semana, semana del año \\
+\texttt{dim\_source} & \texttt{source\_id} & nombre del dominio (normalizado a minúsculas) \\
+\texttt{dim\_region} & \texttt{region\_id} & nombre, número romano oficial, abreviación \\
+\bottomrule
+\end{tabular}
+\caption{Tablas de dimensiones.}
+\end{table}
+
+\texttt{dim\_region} incluye una fila especial \texttt{Desconocida} (id = 17)
+para artículos sin mención detectable de región, garantizando que
+\textbf{todos} los registros de \texttt{fact\_news} tengan una región válida
+y la integridad referencial no se rompa.
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Pipeline ETL}
+
+El pipeline se implementó en Python puro (pandas + pyarrow) y se puede
+ejecutar con un solo comando: \texttt{python main.py}. Consta de cuatro
+pasos secuenciales.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=0.6cm and 1.2cm,
+  box/.style={rectangle, draw, rounded corners=3pt,
+              minimum width=2.8cm, minimum height=0.85cm,
+              align=center, font=\small},
+  arr/.style={-{Stealth}, thick},
+]
+  \node[box, fill=blue!10]   (csv)    {CSV crudo};
+  \node[box, fill=orange!15, right=of csv]  (scan)   {Paso 1\\Escaneo};
+  \node[box, fill=green!15,  right=of scan] (dims)   {Paso 2\\Dimensiones};
+  \node[box, fill=yellow!20, right=of dims] (fact)   {Paso 3\\fact\_news};
+  \node[box, fill=red!10,    right=of fact] (val)    {Paso 4\\Validaciones};
+
+  \draw[arr] (csv)  -- (scan);
+  \draw[arr] (scan) -- (dims);
+  \draw[arr] (dims) -- (fact);
+  \draw[arr] (fact) -- (val);
+\end{tikzpicture}
+\caption{Flujo del pipeline ETL.}
+\end{figure}
+
+\subsection{Paso 1 --- Escaneo ligero (\textit{pass 1})}
+
+Se lee el CSV usando únicamente las columnas \texttt{publish\_date} y
+\texttt{source} (sin cargar \texttt{body}), en chunks de 100\,000 filas.
+El objetivo es construir dos diccionarios:
+\begin{itemize}[noitemsep]
+  \item \texttt{unique\_dates}: \texttt{fecha\_str} $\to$ \texttt{date\_id}
+  \item \texttt{unique\_sources}: \texttt{dominio} $\to$ \texttt{source\_id}
+\end{itemize}
+Esta pasada es rápida porque evita deserializar los campos de texto largos.
+Al finalizar se conoce también el conteo total de filas crudas
+(\texttt{raw\_row\_count}), usado en las validaciones.
+
+\subsection{Paso 2 --- Construcción de dimensiones}
+
+Con los diccionarios del paso anterior se construyen las tres dimensiones
+en memoria y se persisten como Parquet:
+
+\begin{itemize}[noitemsep]
+  \item \textbf{\texttt{dim\_date}}: se parsea cada fecha única con
+    \texttt{datetime.strptime} para extraer año, mes, día, día de la semana
+    e ISO-semana.
+  \item \textbf{\texttt{dim\_source}}: se normaliza el dominio a minúsculas
+    para evitar duplicados por capitalización.
+  \item \textbf{\texttt{dim\_region}}: se construye estáticamente desde la
+    tabla de aliases definida en \texttt{regions.py}.
+\end{itemize}
+
+\subsection{Paso 3 --- ETL principal (\textit{pass 2})}
+
+Se recorre el CSV nuevamente en chunks. Por cada chunk:
+
+\begin{enumerate}[noitemsep]
+  \item \textbf{Limpieza}: se eliminan filas sin \texttt{article\_id} o
+    \texttt{publish\_date}, y duplicados por \texttt{article\_id}.
+  \item \textbf{Corrección de encoding}: se aplica \texttt{fix\_encoding}
+    sobre \texttt{title} y \texttt{body} (ver Sección~\ref{sec:encoding}).
+  \item \textbf{Asignación de llaves foráneas}: se hace \textit{map} de
+    \texttt{publish\_date} $\to$ \texttt{date\_id} y de \texttt{source}
+    $\to$ \texttt{source\_id} usando los diccionarios del paso~1.
+  \item \textbf{Inferencia de región}: se aplica \texttt{assign\_regions}
+    (ver Sección~\ref{sec:region}) y se asigna \texttt{region\_id}.
+  \item \textbf{Word count}: se cuenta el número de palabras en
+    \texttt{title} y \texttt{body} de forma vectorizada.
+  \item \textbf{Escritura particionada}: se agrupa el chunk por
+    \texttt{(year, month)} y cada grupo se escribe en su \texttt{ParquetWriter}
+    correspondiente.
+\end{enumerate}
+
+Los \texttt{ParquetWriter}s se mantienen abiertos en un diccionario
+\texttt{writers} durante todo el procesamiento. Dado que el CSV no está
+ordenado cronológicamente, artículos de la misma partición pueden aparecer en
+chunks distintos; mantener el writer abierto permite acumular esas filas en
+el mismo archivo sin reescribirlo. Al terminar (o si ocurre un error),
+todos los writers se cierran en un bloque \texttt{finally}, lo que
+materializa el \textit{footer} de Parquet y deja los archivos válidos.
+
+\subsection{Paso 4 --- Validaciones}
+
+Se describen en la Sección~\ref{sec:validaciones}.
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Decisiones de diseño}
+
+\subsection{Procesamiento por chunks}
+\label{sec:chunks}
+
+El dataset completo ocupa $\approx$4\,GB en disco. Cargarlo en memoria de
+una sola vez requeriría varios GB de RAM adicionales por las estructuras
+intermedias de pandas. En cambio, procesar en chunks de 100\,000 filas
+mantiene el uso de memoria acotado independientemente del tamaño del archivo,
+a costa de dos pasadas en lugar de una.
+
+\subsection{Corrección de encoding}
+\label{sec:encoding}
+
+El dataset presenta dos tipos de corrupción de texto:
+
+\begin{itemize}[noitemsep]
+  \item \textbf{Mojibake clásico} (ej. \texttt{RÃ­os} en lugar de
+    \textit{Ríos}): causado por leer bytes UTF-8 como Latin-1. Se corrige
+    con la librería \texttt{ftfy}.
+  \item \textbf{Sustituciones CJK} (ej. \texttt{U+8C69} en lugar de
+    \textit{á}): artefacto específico de este dataset donde vocales
+    acentuadas fueron reemplazadas por caracteres CJK. Se corrige con un
+    diccionario de mapeo manual.
+\end{itemize}
+
+Para evitar el costo de llamar a \texttt{ftfy} en cada fila, se aplica
+primero una búsqueda con expresión regular que detecta bytes sospechosos
+(\texttt{\textbackslash xc3}, \texttt{\textbackslash xc2}, caracteres CJK).
+Solo si hay una coincidencia se invoca \texttt{ftfy}.
+
+\subsection{Inferencia de región}
+\label{sec:region}
+
+Se definió una tabla de aliases por región (topónimos, ciudades principales,
+número romano oficial) con más de 100 términos en total. La inferencia opera
+en tres etapas vectorizadas sobre cada chunk:
+
+\begin{enumerate}[noitemsep]
+  \item \textbf{Normalización}: se convierte el texto a minúsculas y se
+    eliminan tildes (NFD + ASCII), para que las búsquedas sean
+    insensibles a mayúsculas y acentos.
+  \item \textbf{Puntuación}: se cuentan las menciones de cada alias con
+    \texttt{str.count} y se aplica la ponderación:
+    \[
+      \text{score}(r) = 3 \cdot \text{hits\_title}(r)
+                      + 1 \cdot \text{hits\_body}(r)
+    \]
+    donde \texttt{body} se trunca a 800 caracteres para reducir el cómputo.
+  \item \textbf{Desambiguación}: la región con mayor puntaje gana.
+    Si el puntaje máximo es 0 o hay empate, se asigna \texttt{Desconocida}.
+\end{enumerate}
+
+La ponderación $3\!:\!1$ refleja que las menciones en el título son más
+informativas: el título suele nombrar explícitamente el lugar de la noticia,
+mientras que el cuerpo puede mencionar otras regiones de forma contextual.
+
+\subsection{Formato de almacenamiento}
+
+Se eligió \textbf{Parquet} (columnar, comprimido) sobre CSV o JSON por tres
+razones: (1) ocupa significativamente menos espacio en disco; (2) permite
+leer solo las columnas necesarias en cada consulta; (3) preserva los tipos
+de datos sin necesidad de parseo adicional. La partición Hive
+(\texttt{year=/month=}) permite además que herramientas como PyArrow o
+DuckDB omitan particiones completas al filtrar por fecha.
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Validaciones}
+\label{sec:validaciones}
+
+Se implementaron cinco validaciones que se ejecutan automáticamente al
+finalizar el pipeline. Para eficiencia, \texttt{fact\_news} se carga con
+solo las columnas de llaves (\texttt{article\_id}, \texttt{date\_id},
+\texttt{source\_id}, \texttt{region\_id}).
+
+\begin{table}[H]
+\centering
+\begin{tabular}{clp{8cm}}
+\toprule
+\textbf{\#} & \textbf{Nombre} & \textbf{Qué verifica} \\
+\midrule
+1 & Consistencia referencial &
+  Ninguna FK en \texttt{fact\_news} apunta a un ID inexistente en
+  \texttt{dim\_date}, \texttt{dim\_source} o \texttt{dim\_region}. \\
+2 & Conteo de filas &
+  El número de filas en \texttt{fact\_news} no supera el número de filas
+  en el CSV crudo (las diferencias se deben a filas descartadas). \\
+3 & PKs sin duplicados &
+  Cada tabla de dimensiones tiene valores únicos en su clave primaria. \\
+4 & Particiones correctas &
+  Para cada par (año, mes) presente en \texttt{fact\_news}, existe el
+  archivo \texttt{part-0.parquet} en la carpeta de partición correspondiente. \\
+5 & \texttt{article\_id} únicos &
+  No existen \texttt{article\_id} duplicados en \texttt{fact\_news},
+  garantizando la unicidad de la clave natural. \\
+\bottomrule
+\end{tabular}
+\caption{Resumen de validaciones implementadas.}
+\end{table}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Estructura del warehouse}
+
+\begin{lstlisting}
+warehouse_data/
+    dim_date/
+        dim_date.parquet
+    dim_source/
+        dim_source.parquet
+    dim_region/
+        dim_region.parquet
+    fact_news/
+        year=2023/
+            month=01/part-0.parquet
+            month=02/part-0.parquet
+            ...
+        year=2024/ ...
+        year=2025/ ...
+\end{lstlisting}
+
+El pipeline completo se ejecuta con:
+\begin{lstlisting}[language=bash]
+python main.py                   # dataset completo
+python main.py --sample          # noti.csv (50k filas, para pruebas)
+python main.py --chunk-size 200000  # chunk mas grande
+\end{lstlisting}
+
+\end{document}
