@@ -20,6 +20,7 @@ codigo.py
 *.out
 *.toc
 *.synctex.gz
+*.tex 
 
 # misceláneos
 desconocidos*.txt
