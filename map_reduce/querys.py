@@ -19,9 +19,10 @@ STOP_WORDS = {
     'sobre','entre','sin','hasta','desde','ante','tras','donde',
     'cuando','también','por que','todo','muy','años','además','parte',
     'durante','tiene','según','porque','esto','quien','solo','todos',
+    'luego','tanto'
 }
 
-# regex para descartar numeros y puntuaciones no relevantes al caso.
+# regex para descartar numeros y puntuaciones no relevantes al caso. 2023,
 # exige al menos 4 letras
 TOKEN_RE = re.compile(r"[a-záéíóúüñ]{4,}", re.IGNORECASE)
 
@@ -117,7 +118,10 @@ def dist_words_per_region():
                 ratio = reg_count / glob_count
                 f.write(f"  {word}: regional={reg_count}, global={glob_count}, ratio={ratio:.4f}\n")
             f.write("\n")
-
+    with open('dist_global.csv', 'w') as f: 
+        f.write("palabra,f_g\n")
+        for word, count in global_words.items():
+            f.write(f"{word},{count}\n")
     
 
 if __name__ == "__main__":
