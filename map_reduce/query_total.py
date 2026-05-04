@@ -11,24 +11,39 @@ PATH = os.path.join("..","warehouse_data","fact_news")
 years  = [2023, 2024, 2025]
 months = [f"{i:02d}" for i in range(1, 13)]
 
+# Palabras comunes que no aportan significado relevante para el análisis (stop words)
 STOP_WORDS = {
-    'de','la','su','como','a','por','en','que','con','para',
-    'se','del','al','lo','es','y','un','una','las','los',
-    'el','le','les','no','si','ya','o','e','ni','pero','más',
-    'este','esta','estos','estas','ese','esa','esos','esas',
-    'ser','ha','han','hay','fue','son','era','está','están',
-    'lo','me','te','nos','mi','tu','su','sus','mis','tus',
-    'sobre','entre','sin','hasta','desde','ante','tras','donde',
-    'cuando','también','por que','todo','muy','años','además','parte',
-    'durante','tiene','según','porque','esto','quien','solo','todos',
-    'luego','tanto'
+    'a', 'además', 'ahora', 'ahí', 'al', 'ante', 'así', 'año', 'años', 
+    'bien', 'cada', 'como', 'con', 'contra', 'cuando', 'cómo', 'de', 
+    'del', 'desde', 'después', 'dijo', 'donde', 'dos', 'durante', 'día', 
+    'días', 'e', 'el', 'ella', 'en', 'entre', 'era', 'es', 'esa', 'esas', 
+    'ese', 'eso', 'esos', 'esta', 'estas', 'este', 'esto', 'estos', 'está', 
+    'están', 'fecha', 'fue', 'fueron', 'gran', 'ha', 'había', 'hace', 
+    'hacer', 'han', 'hasta', 'hay', 'hecho', 'horas', 'hoy', 'la', 'las', 
+    'le', 'les', 'lo', 'lo', 'los', 'luego', 'lugar', 'me', 'mi', 'mientras', 
+    'mis', 'mismo', 'momento', 'muy', 'más', 'ni', 'no', 'nos', 'nueva', 
+    'nuevo', 'o', 'otros', 'para', 'parte', 'pasado', 'pero', 'por', 
+    'por que', 'porque', 'puede', 'que', 'quien', 'quienes', 'qué', 'respecto', 
+    'se', 'sea', 'según', 'ser', 'será', 'señaló', 'si', 'sido', 'sin', 'sino', 
+    'sobre', 'solo', 'son', 'su', 'su', 'sus', 'también', 'tanto', 'te', 'tener', 
+    'the', 'tiene', 'todo', 'todos', 'tras', 'través', 'tres', 'tu', 'tus', 'un', 
+    'una', 'uno', 'ver', 'vez', 'y', 'ya'
 }
 
-TOKEN_RE = re.compile(r"[a-záéíóúüñ]{4,}", re.IGNORECASE)
+# longitud mínima de palabras a considerar
+MIN_WORD_LENGTH = 3
 
+# regex para extraer palabras (min 3 letras, ignorando mayúsculas y acentos)
+TOKEN_RE = re.compile(
+    rf"[a-záéíóúüñ]{{{MIN_WORD_LENGTH},}}", 
+    re.IGNORECASE
+)
+
+# umbral mínimo de frecuencia global para considerar una palabra en análisis regional o por fuente
 MIN_FREQ = 10
 
 
+# Mapper que extrae palabras de un texto, normaliza a minúsculas y filtra stop words
 def mapper(text: str):
     if not text:
         return
@@ -185,7 +200,7 @@ def query_kl_divergence_per_source(source_counts: dict, global_counts: dict) -> 
 # 2.4 detección de peaks de volumen diario
 
 WINDOW      = 7    # dias de la ventana movil
-PEAK_FACTOR = 1.5  # un día es peak si supera 1.3x el promedio móvil
+PEAK_FACTOR = 1.5  # un día es peak si supera 1.5x el promedio móvil
 
 def query_detect_peaks(daily_counts: dict) -> None:
 
