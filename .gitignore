@@ -1,6 +1,7 @@
 # datos
 *.csv
 *.csv.gz
+*.json
 noti/
 
 # warehouses
