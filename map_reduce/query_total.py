@@ -4,6 +4,7 @@ import re
 import math
 import itertools
 from tqdm import tqdm
+import json 
 
 PATH = os.path.join("..","warehouse_data","fact_news")
 
@@ -184,7 +185,7 @@ def query_kl_divergence_per_source(source_counts: dict, global_counts: dict) -> 
 # 2.4 detección de peaks de volumen diario
 
 WINDOW      = 7    # dias de la ventana movil
-PEAK_FACTOR = 2.0  # un día es peak si supera 2x el promedio. 
+PEAK_FACTOR = 1.5  # un día es peak si supera 1.3x el promedio móvil
 
 def query_detect_peaks(daily_counts: dict) -> None:
 
@@ -221,12 +222,62 @@ def query_detect_peaks(daily_counts: dict) -> None:
     print(f"  {len(peaks)} peaks detectados → query_peaks.txt, query_daily_counts.csv")
 
 
+def escribir_jsons(m_c, r_c, s_c, g_c, d_c):
+    # monthly_counts usa tuplas como claves → serializar como "YYYY-MM"
+    m_c_str = {f"{y}-{m}": v for (y, m), v in m_c.items()}
+    with open("monthly_counts.json", "w") as f:
+        json.dump(m_c_str, f)
+    with open("region_counts.json", "w") as f:
+        json.dump({str(k): v for k, v in r_c.items()}, f)
+    with open("source_counts.json", "w") as f:
+        json.dump({str(k): v for k, v in s_c.items()}, f)
+    with open("global_counts.json", "w") as f:
+        json.dump(g_c, f)
+    with open("daily_counts.json", "w") as f:
+        json.dump(d_c, f)
+    print("JSONs guardados.")
+
+
+def leer_jsons():
+    with open("monthly_counts.json") as f:
+        raw = json.load(f)
+    # reconstruir claves como tuplas (year_int, "MM")
+    monthly_counts = {(int(k[:4]), k[5:]): v for k, v in raw.items()}
+
+    with open("region_counts.json") as f:
+        raw = json.load(f)
+    region_counts = {int(k) if k.lstrip("-").isdigit() else k: v for k, v in raw.items()}
+
+    with open("source_counts.json") as f:
+        raw = json.load(f)
+    source_counts = {int(k) if k.lstrip("-").isdigit() else k: v for k, v in raw.items()}
+
+    with open("global_counts.json") as f:
+        global_counts = json.load(f)
+
+    with open("daily_counts.json") as f:
+        daily_counts = json.load(f)
+
+    return monthly_counts, region_counts, source_counts, global_counts, daily_counts
+    
+    
 
 # main
 
 if __name__ == "__main__":
-    print("Iniciando pasada única sobre los datos...")
-    monthly_counts, region_counts, source_counts, global_counts, daily_counts = single_pass()
+    jsons_exist = all(
+        os.path.exists(p) for p in [
+            "monthly_counts.json", "region_counts.json", "source_counts.json",
+            "global_counts.json", "daily_counts.json"
+        ]
+    )
+    if jsons_exist:
+        print("Cargando datos desde JSONs...")
+        monthly_counts, region_counts, source_counts, global_counts, daily_counts = leer_jsons()
+    else:
+        print("Iniciando pasada única sobre los datos...")
+        monthly_counts, region_counts, source_counts, global_counts, daily_counts = single_pass()
+        escribir_jsons(monthly_counts, region_counts, source_counts, global_counts, daily_counts)
 
     print("Ejecutando query 2.1...")
     query_top_k_terms_month(monthly_counts)
