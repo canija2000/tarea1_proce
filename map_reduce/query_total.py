@@ -6,7 +6,17 @@ import itertools
 from tqdm import tqdm
 import json 
 
-PATH = os.path.join("..","warehouse_data","fact_news")
+PATH = os.path.join("warehouse_data","fact_news")
+
+json_dir = os.path.join("map_reduce","json_data")
+txt_dir = os.path.join("map_reduce","txt_results")
+
+if not os.path.exists(json_dir):
+    os.makedirs(json_dir, exist_ok=True)
+
+if not os.path.exists(txt_dir):
+    os.makedirs(txt_dir, exist_ok=True)
+
 
 years  = [2023, 2024, 2025]
 months = [f"{i:02d}" for i in range(1, 13)]
@@ -63,7 +73,7 @@ def single_pass():
     daily_counts   = {}  # {"YYYY-MM-DD":  count}          → 2.4
 
     # cargamos dim_date una sola vez para resolver date_id → fecha
-    dim_date = pq.read_table(os.path.join('..','warehouse_data','dim_date'))
+    dim_date = pq.read_table(os.path.join('warehouse_data','dim_date'))
     date_map = dict(zip(dim_date['date_id'].to_pylist(), dim_date['fecha'].to_pylist()))
 
     for year in tqdm(years, desc="Pasada única"):
@@ -120,7 +130,8 @@ def single_pass():
 
 def query_top_k_terms_month(monthly_counts: dict, k: int = 20) -> None:
     print("Escribiendo top K términos mensuales...")
-    with open("query_top_k_terms_month.txt", "w") as f:
+    
+    with open(os.path.join(txt_dir, "query_top_k_terms_month.txt"), "w") as f:
         for (year, month), counts in sorted(monthly_counts.items()):
             top = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:k]
             for term, count in top:
@@ -131,14 +142,14 @@ def query_top_k_terms_month(monthly_counts: dict, k: int = 20) -> None:
 # 2.2 distribución de palabras por región
 
 def query_dist_words_per_region(region_counts: dict, global_counts: dict) -> None:
-    regiones = pq.read_table(os.path.join('..','warehouse_data','dim_region'))
+    regiones = pq.read_table(os.path.join('warehouse_data','dim_region'))
     regiones_dict = dict(zip(
         regiones['region_id'].to_pylist(),
         regiones['region_name'].to_pylist()
     ))
 
     print("Escribiendo distribución de palabras por región...")
-    with open("query_dist_words_per_region.txt", "w") as f:
+    with open(os.path.join(txt_dir, "query_dist_words_per_region.txt"), "w") as f:
         for region_id, words in region_counts.items():
             region_name = regiones_dict.get(region_id, f"id={region_id}")
             f.write(f"Región: {region_name}\n")
@@ -152,7 +163,7 @@ def query_dist_words_per_region(region_counts: dict, global_counts: dict) -> Non
                 f.write(f"  {word}: regional={reg_count}, global={glob_count}, ratio={ratio:.4f}\n")
             f.write("\n")
 
-    with open("dist_global.csv", "w") as f:
+    with open(os.path.join(txt_dir, "dist_global.csv"), "w") as f:
         f.write("palabra,f_g\n")
         for word, count in global_counts.items():
             f.write(f"{word},{count}\n")
@@ -161,7 +172,7 @@ def query_dist_words_per_region(region_counts: dict, global_counts: dict) -> Non
 # 2.3 divergencia de vocabulario por fuente (KL)
 
 def query_kl_divergence_per_source(source_counts: dict, global_counts: dict) -> None:
-    fuentes = pq.read_table(os.path.join('..','warehouse_data','dim_source'))
+    fuentes = pq.read_table(os.path.join('warehouse_data','dim_source'))
     fuentes_dict = dict(zip(
         fuentes['source_id'].to_pylist(),
         fuentes['source'].to_pylist()
@@ -189,7 +200,7 @@ def query_kl_divergence_per_source(source_counts: dict, global_counts: dict) -> 
 
     kl_results.sort(key=lambda x: x[1], reverse=True)
 
-    with open("query_kl_per_source.txt", "w") as f:
+    with open(os.path.join(txt_dir, "query_kl_per_source.txt"), "w") as f:
         f.write("fuente, kl_divergencia\n")
         for source_id, kl in kl_results:
             name = fuentes_dict.get(source_id, f"id={source_id}")
@@ -221,13 +232,13 @@ def query_detect_peaks(daily_counts: dict) -> None:
 
     peak_dates = {d for d, _, _ in peaks}
 
-    with open("query_peaks.txt", "w") as f:
+    with open(os.path.join(txt_dir, "query_peaks.txt"), "w") as f:
         f.write("fecha, articulos, promedio_movil_7d, factor\n")
         for date, count, avg in peaks:
             f.write(f"{date}, {count}, {avg:.1f}, {count/avg:.2f}x\n")
 
     # serie completa para visualización
-    with open("query_daily_counts.csv", "w") as f:
+    with open(os.path.join(txt_dir, "query_daily_counts.csv"), "w") as f:
         f.write("fecha,articulos,promedio_movil_7d,es_peak\n")
         for date, count, avg in zip(dates, counts, moving_avgs):
             avg_str = f"{avg:.1f}" if avg is not None else ""
@@ -238,70 +249,77 @@ def query_detect_peaks(daily_counts: dict) -> None:
 
 
 def escribir_jsons(m_c, r_c, s_c, g_c, d_c):
+    
     # monthly_counts usa tuplas como claves → serializar como "YYYY-MM"
     m_c_str = {f"{y}-{m}": v for (y, m), v in m_c.items()}
-    with open("monthly_counts.json", "w") as f:
+    with open(os.path.join(json_dir, "monthly_counts.json"), "w") as f:
         json.dump(m_c_str, f)
-    with open("region_counts.json", "w") as f:
+    with open(os.path.join(json_dir, "region_counts.json"), "w") as f:
         json.dump({str(k): v for k, v in r_c.items()}, f)
-    with open("source_counts.json", "w") as f:
+    with open(os.path.join(json_dir, "source_counts.json") , "w") as f:
         json.dump({str(k): v for k, v in s_c.items()}, f)
-    with open("global_counts.json", "w") as f:
+    with open(os.path.join(json_dir, "global_counts.json"), "w") as f:
         json.dump(g_c, f)
-    with open("daily_counts.json", "w") as f:
+    with open(os.path.join(json_dir, "daily_counts.json"), "w") as f:
         json.dump(d_c, f)
     print("JSONs guardados.")
 
 
 def leer_jsons():
-    with open("monthly_counts.json") as f:
+    with open(os.path.join(json_dir, "monthly_counts.json")) as f:
         raw = json.load(f)
     # reconstruir claves como tuplas (year_int, "MM")
     monthly_counts = {(int(k[:4]), k[5:]): v for k, v in raw.items()}
 
-    with open("region_counts.json") as f:
+    with open(os.path.join(json_dir, "region_counts.json")) as f:
         raw = json.load(f)
     region_counts = {int(k) if k.lstrip("-").isdigit() else k: v for k, v in raw.items()}
 
-    with open("source_counts.json") as f:
+    with open(os.path.join(json_dir, "source_counts.json")) as f:
         raw = json.load(f)
     source_counts = {int(k) if k.lstrip("-").isdigit() else k: v for k, v in raw.items()}
 
-    with open("global_counts.json") as f:
+    with open(os.path.join(json_dir, "global_counts.json")) as f:
         global_counts = json.load(f)
 
-    with open("daily_counts.json") as f:
+    with open(os.path.join(json_dir, "daily_counts.json")) as f:
         daily_counts = json.load(f)
 
     return monthly_counts, region_counts, source_counts, global_counts, daily_counts
     
-    
 
-# main
-
-if __name__ == "__main__":
+def main():
     jsons_exist = all(
         os.path.exists(p) for p in [
-            "monthly_counts.json", "region_counts.json", "source_counts.json",
-            "global_counts.json", "daily_counts.json"
+            os.path.join(json_dir, "monthly_counts.json"),
+            os.path.join(json_dir, "region_counts.json"),
+            os.path.join(json_dir, "source_counts.json"),
+            os.path.join(json_dir, "global_counts.json"),
+            os.path.join(json_dir, "daily_counts.json")
         ]
     )
     if jsons_exist:
-        print("Cargando datos desde JSONs...")
+        print(f"{'Cargando datos desde JSONs...':<50}", " | ")
         monthly_counts, region_counts, source_counts, global_counts, daily_counts = leer_jsons()
     else:
         print("Iniciando pasada única sobre los datos...")
         monthly_counts, region_counts, source_counts, global_counts, daily_counts = single_pass()
         escribir_jsons(monthly_counts, region_counts, source_counts, global_counts, daily_counts)
 
-    print("Ejecutando query 2.1...")
+    print(f"{'Ejecutando query 2.1...':<50}", " | ")
     query_top_k_terms_month(monthly_counts)
 
-    print("Ejecutando query 2.2...")
+    print(f"{'Ejecutando query 2.2...':<50}", " | ")
     query_dist_words_per_region(region_counts, global_counts)
 
-    print("Ejecutando query 2.3...")
+    print(f"{'Ejecutando query 2.3...':<50}", " | ")
     query_kl_divergence_per_source(source_counts, global_counts)
 
-    print("Ejecutando query 2.4...")
+    print(f"{'Ejecutando query 2.4...':<50}", " | ")
     query_detect_peaks(daily_counts)
+
+# main
+
+if __name__ == "__main__":
+    main()
+    

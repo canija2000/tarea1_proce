@@ -1,5 +1,4 @@
 import os
-
 import pandas as pd
 
 
@@ -30,7 +29,7 @@ def run_all_validations(warehouse: str, raw_row_count: int) -> bool:
 
     results = []
 
-    # 1. Consistencia referencial
+    # consistencia referencial
     orphan_date   = (~fact_keys["date_id"].isin(dim_date["date_id"])).sum()
     orphan_source = (~fact_keys["source_id"].isin(dim_source["source_id"])).sum()
     orphan_region = (~fact_keys["region_id"].isin(dim_region["region_id"])).sum()
@@ -41,14 +40,14 @@ def run_all_validations(warehouse: str, raw_row_count: int) -> bool:
         f"date={orphan_date}, source={orphan_source}, region={orphan_region} huérfanas",
     ))
 
-    # 2. Conteo de filas vs CSV crudo
+    # 2 conteo de filas vs CSV crudo
     results.append(_check(
         len(fact_keys) <= raw_row_count, "2-conteo",
         f"fact_news ({len(fact_keys):,}) ≤ CSV crudo ({raw_row_count:,})",
         f"fact_news ({len(fact_keys):,}) > CSV crudo ({raw_row_count:,}) — imposible",
     ))
 
-    # 3. Sin PKs duplicadas en dimensiones
+    # 3 sin PKs duplicadas en dimensiones
     dims_ok = True
     for name, df, pk in [
         ("dim_date",   dim_date,   "date_id"),
@@ -61,7 +60,7 @@ def run_all_validations(warehouse: str, raw_row_count: int) -> bool:
         _check(ok, f"3-pks/{name}", "sin duplicados", f"{dups} PKs duplicadas")
     results.append(dims_ok)
 
-    # 4. Distribución de particiones correcta
+    # 4 dstribución de particiones correcta
     date_lookup = dim_date.set_index("date_id")[["anio", "mes"]]
     fact_parts  = fact_keys[["date_id"]].join(date_lookup, on="date_id")
     combos      = fact_parts.groupby(["anio", "mes"]).size().reset_index()
@@ -77,7 +76,7 @@ def run_all_validations(warehouse: str, raw_row_count: int) -> bool:
         f"{missing} particiones faltantes",
     ))
 
-    # 5. Sin article_id duplicados en fact_news
+    # 5 sin duplicados
     dups = len(fact_keys) - fact_keys["article_id"].nunique()
     results.append(_check(
         dups == 0, "5-article_id-unicos",

@@ -1,8 +1,10 @@
 import os
+import sys
 from datetime import datetime
 
 import pandas as pd
 import pyarrow.parquet as pq
+from tqdm import tqdm
 
 from .regions import REGION_ALIASES, REGION_IDS
 
@@ -39,23 +41,27 @@ def scan_csv(
     unique_dates:   dict[str, int] = {}
     unique_sources: dict[str, int] = {}
     raw_row_count = 0
-
-    for chunk in pd.read_csv(
+    reader = pd.read_csv(
         input_csv,
         usecols=["publish_date", "source"],
         chunksize=chunk_size,
         encoding="utf-8-sig",
         on_bad_lines="skip",
-    ):
-        raw_row_count += len(chunk)
+    )
 
-        for d in chunk["publish_date"].dropna().unique():
-            if d not in unique_dates:
-                unique_dates[d] = len(unique_dates) + 1
+    with tqdm(desc="Escaneando CSV", unit=" rows", unit_scale=True, file=sys.stdout, dynamic_ncols=True) as pbar:
+        for chunk in reader:
+            chunk_len = len(chunk)
+            raw_row_count += chunk_len
+            pbar.update(chunk_len)
 
-        for s in chunk["source"].dropna().str.lower().unique():
-            if s not in unique_sources:
-                unique_sources[s] = len(unique_sources) + 1
+            for d in chunk["publish_date"].dropna().unique():
+                if d not in unique_dates:
+                    unique_dates[d] = len(unique_dates) + 1
+
+            for s in chunk["source"].dropna().str.lower().unique():
+                if s not in unique_sources:
+                    unique_sources[s] = len(unique_sources) + 1
 
     return unique_dates, unique_sources, raw_row_count
 
@@ -67,7 +73,7 @@ def build_dim_date(unique_dates: dict[str, int], warehouse: str) -> pd.DataFrame
     el DataFrame resultante en un archivo Parquet.
     """
     rows = []
-    for date_str, date_id in unique_dates.items():
+    for date_str, date_id in tqdm(unique_dates.items(), desc="  dim_date", unit=" fecha"):
         try:
             d = datetime.strptime(date_str.strip(), "%Y-%m-%d")
             rows.append({
@@ -93,10 +99,11 @@ def build_dim_source(unique_sources: dict[str, int], warehouse: str) -> pd.DataF
     """
     Construye la dimension de fuentes. Genera el parquet. 
     """
-    dim = pd.DataFrame([
+    rows = [
         {"source_id": sid, "source": src}
-        for src, sid in unique_sources.items()
-    ]).sort_values("source_id").reset_index(drop=True)
+        for src, sid in tqdm(unique_sources.items(), desc="  dim_source", unit=" source")
+    ]
+    dim = pd.DataFrame(rows).sort_values("source_id").reset_index(drop=True)
 
     out = f"{warehouse}/dim_source/dim_source.parquet"
     os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -108,15 +115,16 @@ def build_dim_region(warehouse: str) -> pd.DataFrame:
     """
     Construye la dimension de las regiones. Crea el parquet
     """
-    dim = pd.DataFrame([
+    rows = [
         {
             "region_id":   rid,
             "region_name": rname,
             "n_romano":    _ROMAN.get(rname, ""),
             "abreviacion": _ABREV.get(rname, ""),
         }
-        for rname, rid in REGION_IDS.items()
-    ])
+        for rname, rid in tqdm(REGION_IDS.items(), desc="  dim_region", unit=" region")
+    ]
+    dim = pd.DataFrame(rows)
 
     out = f"{warehouse}/dim_region/dim_region.parquet"
     os.makedirs(os.path.dirname(out), exist_ok=True)
